@@ -1,139 +1,109 @@
-from networking.io import Logger
-from game import Game
-from api import game_util
-from model.position import Position
-from model.decisions.move_decision import MoveDecision
-from model.decisions.action_decision import ActionDecision
-from model.decisions.buy_decision import BuyDecision
-from model.decisions.harvest_decision import HarvestDecision
-from model.decisions.plant_decision import PlantDecision
-from model.decisions.do_nothing_decision import DoNothingDecision
-from model.tile_type import TileType
-from model.item_type import ItemType
 from model.crop_type import CropType
-from model.upgrade_type import UpgradeType
-from model.game_state import GameState
-from model.player import Player
-from api.constants import Constants
+from model.crop import Crop
+from model.decisions.harvest_decision import HarvestDecision
+from api import game_util
+from functools import reduce
+from math import ceil
+from model.decisions.move_decision import MoveDecision
+from typing import Callable, List, Optional
 
-import random
+from api.constants import Constants
+from config import Config
+from game import Game
+from model.decisions.turn_decision import TurnDecision, TurnDecisionGenerator, TurnDecisionOverride
+from model.game_state import GameState
+from model.position import Position
+from model.tile_type import TileType
+from movement import move_randomly
+from networking.io import Logger
+from turns import turn_decisions
 
 logger = Logger()
 constants = Constants()
 
 
-def get_move_decision(game: Game) -> MoveDecision:
-    """
-    Returns a move decision for the turn given the current game state.
-    This is part 1 of 2 of the turn.
+class Bot:
+    decision_index: float = 0
 
-    Remember, you can only sell crops once you get to a Green Grocer tile,
-    and you can only harvest or plant within your harvest or plant radius.
+    def __init__(self, turn_decisions: List[TurnDecisionGenerator], decision_overrides: List[TurnDecisionOverride]) -> None:
+        self.turn_decisions = turn_decisions
+        self.decisions_length = reduce(
+            lambda d1, d2: d1 + d2.times, turn_decisions, 0)
+        self.decision_overrides = decision_overrides
 
-    After moving (and submitting the move decision), you will be given a new
-    game state with both players in their updated positions.
+    def make_decision(self, state: GameState, increment_decision: bool=False) -> TurnDecision:
+        if state.feedback:
+            logger.debug(f'Received feedback: {state.feedback}')
+        for override in self.decision_overrides:
+            turn_decision = override(state)
+            if turn_decision is not None:
+                return turn_decision.get_turn_decision(state)
 
-    :param: game The object that contains the game state and other related information
-    :returns: MoveDecision A location for the bot to move to this turn
-    """
-    game_state: GameState = game.get_game_state()
-    logger.debug(f"[Turn {game_state.turn}] Feedback received from engine: {game_state.feedback}")
+        if self.decision_index < len(self.turn_decisions):
+            logger.debug(f'Making decision with index: {self.decision_index}')
+            turn_decision_generator = self.turn_decisions[int(
+                self.decision_index)]
 
-    # Select your decision here!
-    my_player: Player = game_state.get_my_player()
-    pos: Position = my_player.position
-    logger.info(f"Currently at {my_player.position}")
+            if increment_decision:
+                turn_decision_generator.update_status(state)
+                if hasattr(turn_decision_generator, 'is_finished') and turn_decision_generator.is_finished is not None:
+                    logger.debug(f'Turn decision times: {turn_decision_generator.times}, is finished: {turn_decision_generator.is_finished(state)}')
+                turn_decision = turn_decision_generator.get_turn_decision(state)
+                times = turn_decision.times
+                if times > 0:
+                    logger.debug(f'Incrementing decision by {1 / times}')
+                    self.decision_index += 1 / times
+                    if abs(ceil(self.decision_index) - self.decision_index) < 0.001:
+                        self.decision_index = round(self.decision_index)
+            else:
+                turn_decision = turn_decision_generator.get_turn_decision(state)
+        else:
+            player = state.get_my_player()
+            turn_decision = TurnDecision(
+                move_decision=move_randomly(player),
+            )
 
-    # If we have something to sell that we harvested, then try to move towards the green grocer tiles
-    if random.random() < 0.5 and \
-            (sum(my_player.seed_inventory.values()) == 0 or
-             len(my_player.harvested_inventory)):
-        logger.debug("Moving towards green grocer")
-        decision = MoveDecision(Position(constants.BOARD_WIDTH // 2, max(0, pos.y - constants.MAX_MOVEMENT)))
-    # If not, then move randomly within the range of locations we can move to
-    else:
-        pos = random.choice(game_util.within_move_range(game_state, my_player.name))
-        logger.debug("Moving randomly")
-        decision = MoveDecision(pos)
+        return turn_decision
 
-    logger.debug(f"[Turn {game_state.turn}] Sending MoveDecision: {decision}")
-    return decision
+def harvest_grown_crops(state: GameState) -> Optional[TurnDecision]:
+    if state.turn < 50:
+        return None
 
-
-def get_action_decision(game: Game) -> ActionDecision:
-    """
-    Returns an action decision for the turn given the current game state.
-    This is part 2 of 2 of the turn.
-
-    There are multiple action decisions that you can return here: BuyDecision,
-    HarvestDecision, PlantDecision, or UseItemDecision.
-
-    After this action, the next turn will begin.
-
-    :param: game The object that contains the game state and other related information
-    :returns: ActionDecision A decision for the bot to make this turn
-    """
-    game_state: GameState = game.get_game_state()
-    logger.debug(f"[Turn {game_state.turn}] Feedback received from engine: {game_state.feedback}")
-
-    # Select your decision here!
-    my_player: Player = game_state.get_my_player()
-    pos: Position = my_player.position
-    # Let the crop of focus be the one we have a seed for, if not just choose a random crop
-    crop = max(my_player.seed_inventory, key=my_player.seed_inventory.get) \
-        if sum(my_player.seed_inventory.values()) > 0 else random.choice(list(CropType))
-
-    # Get a list of possible harvest locations for our harvest radius
-    possible_harvest_locations = []
-    harvest_radius = my_player.harvest_radius
-    for harvest_pos in game_util.within_harvest_range(game_state, my_player.name):
-        if game_state.tile_map.get_tile(harvest_pos.x, harvest_pos.y).crop.value > 0:
-            possible_harvest_locations.append(harvest_pos)
-
-    logger.debug(f"Possible harvest locations={possible_harvest_locations}")
-
-    # If we can harvest something, try to harvest it
-    if len(possible_harvest_locations) > 0:
-        decision = HarvestDecision(possible_harvest_locations)
-    # If not but we have that seed, then try to plant it in a fertility band
-    elif my_player.seed_inventory[crop] > 0 and \
-            game_state.tile_map.get_tile(pos.x, pos.y).type != TileType.GREEN_GROCER and \
-            game_state.tile_map.get_tile(pos.x, pos.y).type.value >= TileType.F_BAND_OUTER.value:
-        logger.debug(f"Deciding to try to plant at position {pos}")
-        decision = PlantDecision([crop], [pos])
-    # If we don't have that seed, but we have the money to buy it, then move towards the
-    # green grocer to buy it
-    elif my_player.money >= crop.get_seed_price() and \
-        game_state.tile_map.get_tile(pos.x, pos.y).type == TileType.GREEN_GROCER:
-        logger.debug(f"Buy 1 of {crop}")
-        decision = BuyDecision([crop], [1])
-    # If we can't do any of that, then just do nothing (move around some more)
-    else:
-        logger.debug(f"Couldn't find anything to do, waiting for move step")
-        decision = DoNothingDecision()
-
-    logger.debug(f"[Turn {game_state.turn}] Sending ActionDecision: {decision}")
-    return decision
-
+    player = state.get_my_player()
+    positions = game_util.within_move_range(state, player.name)
+    for position in positions:
+        if state.tile_map.get_tile(position.x, position.y).crop != CropType.NONE and \
+            state.tile_map.get_tile(position.x, position.y).turns_left_to_grow == 0:
+            harvest_positions = game_util.within_harvest_range(state, position)
+            return TurnDecision(
+                move_decision=MoveDecision(position),
+                action_decision=HarvestDecision(harvest_positions)
+            )
 
 def main():
     """
     Competitor TODO: choose an item and upgrade for your bot
     """
-    game = Game(ItemType.COFFEE_THERMOS, UpgradeType.SCYTHE)
+    game = Game(Config.START_ITEM, Config.START_UPGRADE)
+    bot = Bot(turn_decisions, [harvest_grown_crops])
 
     while (True):
         try:
             game.update_game()
         except IOError:
             exit(-1)
-        game.send_move_decision(get_move_decision(game))
+        move_decision = bot.make_decision(game.game_state).move_decision
+        logger.debug(f'Sending move decision: {move_decision}')
+        game.send_move_decision(move_decision)
 
         try:
             game.update_game()
         except IOError:
             exit(-1)
-        game.send_action_decision(get_action_decision(game))
+        action_decision = bot.make_decision(
+            game.game_state, increment_decision=True).action_decision
+        logger.debug(f'Sending action decision: {action_decision}')
+        game.send_action_decision(action_decision)
 
 
 if __name__ == "__main__":

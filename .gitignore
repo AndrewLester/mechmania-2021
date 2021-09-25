@@ -1,2 +1,8 @@
 **/__pycache__/*
 **/*.pyc
+.vscode
+*.jar
+donodub*.json
+game.json
+engine.json
+.DS_Store

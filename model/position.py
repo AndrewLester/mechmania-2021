@@ -1,5 +1,4 @@
-from typing import Dict
-
+from typing import Dict, Tuple
 
 class Position:
     def from_dict(self, pos_dict: Dict):
@@ -11,7 +10,7 @@ class Position:
         self.x = x
         self.y = y
 
-    def getpos(self, x, y):
+    def getpos(self, x, y) -> Tuple[int, int]:
         return x, y
 
     def __eq__(self, o: object) -> bool:
@@ -23,6 +22,19 @@ class Position:
 
     def __str__(self) -> str:
         return f"({self.x},{self.y})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def __sub__(self, o: object) -> 'Position':
+        if not isinstance(o, Position):
+            raise TypeError('Can\'t subtract these types')
+        return Position(self.x - o.x, self.y - o.y)
+
+    def __add__(self, o: object) -> 'Position':
+        if not isinstance(o, Position):
+            raise TypeError('Can\'t add these types')
+        return Position(self.x + o.x, self.y + o.y)
 
     def engine_str(self) -> str:
         return f"{self.x} {self.y}"

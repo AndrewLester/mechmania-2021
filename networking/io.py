@@ -28,3 +28,6 @@ class Logger:
 
     def debug(self, message: str) -> None:
         print(f"debug: {str(message)}", file=sys.stderr, flush=True)
+
+    def warn(self, message: str) -> None:
+        print(f"warn: {str(message)}", file=sys.stderr, flush=True)

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 from model.tile_type import TileType
 from model.game_state import GameState
 from model.player import Player
@@ -60,21 +60,26 @@ def within_move_range(game_state: GameState, name: str) -> List[Position]:
     return res
 
 
-def within_harvest_range(game_state: GameState, name: str) -> List[Position]:
+def within_harvest_range(game_state: GameState, name: Union[str, Position]) -> List[Position]:
     """
     Returns all tiles for which player of input name can go to
     :param game_state: GameState containing information for the game
     :param name: Name of player to get
     :return: List of positions that the player can harvest
     """
-    my_player = get_player_from_name(game_state, name)
+    if isinstance(name, str):
+        my_player = get_player_from_name(game_state, name)
+        position = my_player.position
+    else:
+        my_player = game_state.get_my_player()
+        position = name
     radius = my_player.harvest_radius
     res = []
 
-    for i in range(my_player.position.y - radius, my_player.position.y + radius + 1):
-        for j in range(my_player.position.x - radius, my_player.position.x + radius + 1):
+    for i in range(position.y - radius, position.y + radius + 1):
+        for j in range(position.x - radius, position.x + radius + 1):
             pos = Position(j, i)
-            if distance(my_player.position, pos) <= my_player.harvest_radius and valid_position(pos):
+            if distance(position, pos) <= radius and valid_position(pos):
                 res.append(pos)
     return res
 
