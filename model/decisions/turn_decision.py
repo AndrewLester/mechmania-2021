@@ -1,3 +1,4 @@
+from movement import move_randomly, move_relative
 from model.decisions.do_nothing_decision import DoNothingDecision
 from dataclasses import dataclass
 from game import Game
@@ -65,3 +66,7 @@ class TurnDecision(TurnDecisionGenerator):
     @property
     def times(self) -> float:
         return self._times
+
+class WaitDecision(TurnDecisionGenerator):
+    def __init__(self, times: int = 1) -> None:
+        super().__init__(get_move_decision=lambda state: move_relative(state.get_my_player(), 0, 0), get_action_decision=lambda _: DoNothingDecision(), times=times)

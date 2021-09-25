@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Optional, Union
 from model.tile_type import TileType
 from model.game_state import GameState
 from model.player import Player
@@ -40,7 +40,7 @@ def get_player_from_name(game_state: GameState, name: str) -> Player:
     return game_state.player1 if game_state.player1.name == name else game_state.player2
 
 
-def within_move_range(game_state: GameState, name: str) -> List[Position]:
+def within_move_range(game_state: GameState, name: str, speed: Optional[int] = None) -> List[Position]:
     """
     Returns all tiles for which player of input name can go to
     :param game_state: GameState containing information for the game
@@ -48,7 +48,8 @@ def within_move_range(game_state: GameState, name: str) -> List[Position]:
     :return: List of positions that the player can move to
     """
     my_player = get_player_from_name(game_state, name)
-    speed = my_player.max_movement
+    if speed is None:
+        speed = my_player.max_movement
     res = []
 
     for i in range(my_player.position.y - speed, my_player.position.y + speed):

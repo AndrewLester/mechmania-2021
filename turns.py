@@ -3,11 +3,11 @@ from model.decisions.do_nothing_decision import DoNothingDecision
 from model.decisions.buy_decision import BuyDecision
 from config import Config
 from model.crop_type import CropType
-from planting import harvest_nearby, plant_cross, plant_row
+from planting import get_harvestable_crops_nearby, harvest_nearby, plant_cross, plant_row
 from model.position import Position
 from typing import List
-from model.decisions.turn_decision import TurnDecision, TurnDecisionGenerator
-from movement import at_green_grocer, get_turns_to_position, move_randomly, move_relative, move_to_grocer
+from model.decisions.turn_decision import TurnDecision, TurnDecisionGenerator, WaitDecision
+from movement import at_green_grocer, get_turns_to_position, move_randomly, move_relative, move_to_grocer, move_to_grown_crop
 from model.decisions.move_decision import MoveDecision
 from random import randint
 
@@ -56,11 +56,26 @@ turn_decisions: List[TurnDecisionGenerator] = [
         is_finished=lambda state: at_green_grocer(
             state, state.get_my_player().position)
     ),
+    WaitDecision(times=9),
+    TurnDecisionGenerator(
+        get_move_decision=lambda state: move_relative(state.get_my_player(), randint(-3, 3), 4),
+        get_action_decision=lambda state: plant_cross(state, CropType.JOGAN_FRUIT),
+    ),
     TurnDecisionGenerator(
         get_move_decision=lambda state: move_relative(
-            state.get_my_player(), randint(-3, 3), 4),
+            state.get_my_player(), randint(-3, 3), 0),
         get_action_decision=lambda state: plant_cross(
             state, CropType.JOGAN_FRUIT),
         is_finished=lambda state: state.get_my_player().seed_inventory.get(CropType.JOGAN_FRUIT, 0) == 0
     ),
+    TurnDecisionGenerator(
+        get_move_decision=lambda state: move_relative(state.get_my_player(), 3 * (1 if state.turn % 2 else -1), 0),
+        get_action_decision=lambda state: harvest_nearby(state),
+        times=2
+    ),
+    TurnDecisionGenerator(
+        get_move_decision=lambda state: move_to_grown_crop(state),
+        get_action_decision=lambda state: harvest_nearby(state),
+        is_finished=lambda state: len(get_harvestable_crops_nearby(state)) == 0
+    )
 ]

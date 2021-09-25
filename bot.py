@@ -1,3 +1,6 @@
+from planting import get_harvestable_crops_nearby
+from purchase import buy_up_to
+from model.decisions.buy_decision import BuyDecision
 from model.crop_type import CropType
 from model.crop import Crop
 from model.decisions.harvest_decision import HarvestDecision
@@ -14,7 +17,8 @@ from model.decisions.turn_decision import TurnDecision, TurnDecisionGenerator, T
 from model.game_state import GameState
 from model.position import Position
 from model.tile_type import TileType
-from movement import move_randomly
+from model.decisions.do_nothing_decision import DoNothingDecision
+from movement import move_randomly, move_to_grocer
 from networking.io import Logger
 from turns import turn_decisions
 
@@ -39,19 +43,17 @@ class Bot:
             if turn_decision is not None:
                 return turn_decision.get_turn_decision(state)
 
+        logger.debug(f'Making decision {self.decision_index}')
         if self.decision_index < len(self.turn_decisions):
-            logger.debug(f'Making decision with index: {self.decision_index}')
             turn_decision_generator = self.turn_decisions[int(
                 self.decision_index)]
 
             if increment_decision:
                 turn_decision_generator.update_status(state)
-                if hasattr(turn_decision_generator, 'is_finished') and turn_decision_generator.is_finished is not None:
-                    logger.debug(f'Turn decision times: {turn_decision_generator.times}, is finished: {turn_decision_generator.is_finished(state)}')
+
                 turn_decision = turn_decision_generator.get_turn_decision(state)
                 times = turn_decision.times
                 if times > 0:
-                    logger.debug(f'Incrementing decision by {1 / times}')
                     self.decision_index += 1 / times
                     if abs(ceil(self.decision_index) - self.decision_index) < 0.001:
                         self.decision_index = round(self.decision_index)
@@ -69,23 +71,25 @@ def harvest_grown_crops(state: GameState) -> Optional[TurnDecision]:
     if state.turn < 50:
         return None
 
-    player = state.get_my_player()
-    positions = game_util.within_move_range(state, player.name)
-    for position in positions:
-        if state.tile_map.get_tile(position.x, position.y).crop != CropType.NONE and \
-            state.tile_map.get_tile(position.x, position.y).turns_left_to_grow == 0:
-            harvest_positions = game_util.within_harvest_range(state, position)
-            return TurnDecision(
-                move_decision=MoveDecision(position),
-                action_decision=HarvestDecision(harvest_positions)
-            )
+    positions = get_harvestable_crops_nearby(state)
+    if len(positions) > 0:
+        harvest_grown_crops(state)
+
+def sell_grown_crops(state: GameState) -> Optional[TurnDecision]:
+    harvest_inventory = state.get_my_player().harvested_inventory
+    item_count = len(harvest_inventory)
+    if item_count > state.get_my_player().carring_capacity * 0.75:
+        return TurnDecision(
+            move_decision=move_to_grocer(state.get_my_player()),
+            action_decision=buy_up_to(state, CropType.JOGAN_FRUIT, 5)
+        )
 
 def main():
     """
     Competitor TODO: choose an item and upgrade for your bot
     """
     game = Game(Config.START_ITEM, Config.START_UPGRADE)
-    bot = Bot(turn_decisions, [harvest_grown_crops])
+    bot = Bot(turn_decisions, [harvest_grown_crops, sell_grown_crops])
 
     while (True):
         try:

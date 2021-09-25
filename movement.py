@@ -1,4 +1,7 @@
 
+from planting import get_harvestable_crops_nearby
+from model.crop_type import CropType
+from api import game_util
 from model.tile_type import TileType
 from model.game_state import GameState
 from api.game_util import distance
@@ -56,3 +59,10 @@ def get_turns_to_position(origin: Position, destination: Position) -> int:
 
 def at_green_grocer(game_state: GameState, position: Position) -> bool:
     return game_state.tile_map.get_tile(position.x, position.y).type == TileType.GREEN_GROCER
+
+def move_to_grown_crop(state: GameState) -> MoveDecision:
+    player = state.get_my_player()
+    positions = get_harvestable_crops_nearby(state)
+    if len(positions) > 0:
+        return MoveDecision(Position(positions[0].x, positions[0].y))
+    return move_relative(player, 0, 0)
